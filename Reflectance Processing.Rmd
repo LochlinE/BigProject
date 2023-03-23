@@ -1,0 +1,204 @@
+---
+title: "reflectance processing"
+author: "Lochlin"
+date: "2023-01-26"
+output: html_document
+---
+
+```{r}
+library(asdreader)
+library(tidyverse)
+library(readxl)
+library(stringr)
+```
+
+```{r Example Spectra}
+fileStorage <- "C:\\Users\\lochl\\Documents\\BigProject22\\testDir\\one\\J11C100000.asd" 
+fileNames <- list.files(fileStorage)
+
+J11C1ref <- get_spectra(fileStorage, type = "reflectance")
+
+plot( x = c(350:2500), y = t(J11C1ref), type = 'l')
+```
+
+```{r Retrieve Multiple Spectra from a single folder}
+fileStorage <- "C:\\Users\\lochl\\Documents\\BigProject22\\testDir\\many\\" 
+fileNames <- list.files(fileStorage)
+
+filePaths <- paste(rep(fileStorage, length(fileNames)), fileNames, sep = "")
+
+ref <- get_spectra(filePaths, type = "reflectance") %>%
+  as.data.frame() %>%
+  `rownames<-`(fileNames)
+  
+matplot(x = c(350:2500), y = t(ref), type = 'l',
+        ylim = c(0,1))
+```
+
+```{r Retrieves Multiple Files Contained in Multiple Folders}
+# folderpath for wheat type (DW or SW)
+masterFolder <- "C:/Users/lochl/Documents/BigProject22/BP_Data_2022"
+paths <- list.files(masterFolder, full.names = T,recursive = T)
+paths <- paths[-grep(".ini", paths, fixed = T)]
+
+{ #Regex attribute extraction - grouping key
+#Collection event folder
+#3.DW.I1.1.08JUN22
+# "\\1" = 3 - year
+# "\\2" = DW - wheat type
+# "\\3" = I1 - replicate
+# "\\4" = 1 - collection event
+# "\\5" = 08JUN22 - date of collection event
+} #Regex attribute extraction - grouping key
+
+{
+# things we need to add
+#   plant date
+#   infestation status table
+#   
+} #things we need to add
+
+
+refs <- get_spectra(paths, type = "reflectance") %>%
+  as.data.frame() %>%
+  `rownames<-`(paths)
+refs <- {rownames_to_column(refs, var = "filePaths") %>%
+  mutate(pathNoExt = gsub("[[:digit:]]{5}[.].*", "",filePaths))%>%
+  mutate(sample = toupper(sub('.*/','',pathNoExt))) %>% # extract sample name and make uppercase
+  mutate(collectionName = basename(dirname(pathNoExt))) %>% # extract collection event folder
+  mutate(expYearNum = sub("([^.])+\\.([^.]+)\\.([^.]+)\\.([^.]+)\\.(.*)", "\\1", collectionName)) %>%
+  mutate(wheatType = sub("([^.])+\\.([^.]+)\\.([^.]+)\\.([^.]+)\\.(.*)", "\\2", collectionName)) %>%
+  mutate(rep = sub("([^.])+\\.([^.]+)\\.([^.]+)\\.([^.]+)\\.(.*)", "\\3", collectionName)) %>%
+  mutate(collectionEvent = sub("([^.])+\\.([^.]+)\\.([^.]+)\\.([^.]+)\\.(.*)", "\\4", collectionName)) %>%
+  mutate(dateUncleaned = sub("([^.])+\\.([^.]+)\\.([^.]+)\\.([^.]+)\\.(.*)", "\\5", collectionName)) %>%
+  mutate(month = case_when((substr(dateUncleaned,3,5)) == "JAN" ~ "01",
+                           (substr(dateUncleaned,3,5)) == "FEB" ~ "02",
+                           (substr(dateUncleaned,3,5)) == "MAR" ~ "03",
+                           (substr(dateUncleaned,3,5)) == "APR" ~ "04",
+                           (substr(dateUncleaned,3,5)) == "MAY" ~ "05",
+                           (substr(dateUncleaned,3,5)) == "JUN" ~ "06",
+                           (substr(dateUncleaned,3,5)) == "JUL" ~ "07",
+                           (substr(dateUncleaned,3,5)) == "AUG" ~ "08",
+                           (substr(dateUncleaned,3,5)) == "SEP" ~ "09",
+                           (substr(dateUncleaned,3,5)) == "OCT" ~ "10",
+                           (substr(dateUncleaned,3,5)) == "NOV" ~ "11",
+                           (substr(dateUncleaned,3,5)) == "DEC" ~ "12")) %>%
+  mutate(day = substr(dateUncleaned,1,2)) %>%
+  mutate(year = substr(dateUncleaned,6,7)) %>%
+  mutate(date = paste(month,day,year, sep ="-")) %>%
+  select(-c(dateUncleaned))}
+
+#####################################################
+unqDW <- refs %>%
+  filter(wheatType == "DW" ) %>%
+  select(sample) %>%
+  unique() %>%
+  c()
+
+refs$collectionName[refs$sample == "S4C31ZZZZ"]
+
+refs %>%
+  filter(wheatType == "DW" ) %>%
+  filter(str_length(sample) > 4 ) %>%
+  select(sample)
+
+length(unique(refs$sample[refs$wheatType == "SW"]))
+
+
+
+```
+
+```{r Completion check}
+
+# check Data collection events for each rep under each wheatType
+refs %>%
+  filter(wheatType == "DW" & rep == "I4" )%>%
+  pull(date) %>%
+  unique() %>%
+  sort()
+
+# check repnames for each DC
+refs %>%
+  filter(wheatType == "SW" & rep == "14" )%>%
+  pull(sample) %>%
+  unique() %>%
+  sort()
+
+
+# Identify DC folder based on Name
+refs %>%
+  filter(wheatType == "SW" & rep == "12") %>%
+  filter(sample == "J2C2")%>%
+  pull(collectionName) %>%
+  unique()
+
+```
+
+```{r Audit each collection event}
+authNames <- read_excel("C:\\Users\\lochl\\Documents\\BigProject22\\AuthoritativeNames.xlsx")
+
+# Isolate Replicates under SW
+swRepCount <- authNames %>%
+  filter(wheatType == "SW") %>%
+  pull(rep) %>%
+  unique()
+# Isolate Replicates under DW
+dwRepCount <- authNames %>%
+  filter(wheatType == "DW") %>%
+  pull(rep) %>%
+  unique()
+# each rep should contain 12 samples
+expectedSamplesPerRep <- 12
+# This expression should evaluate to true, if not, the number of names is wrong...
+(length(swRepCount) + length(dwRepCount)) * 12 == length(authNames$name)
+
+# first make sure names in the data EXACTLY match the authoritative names list
+dataNames <- refs %>%
+  pull(sample) %>%
+  unique()
+
+# if FALSE, we need figure out which names are missing.
+identical(length(dataNames),length(authNames$name))
+
+# authNames has spaces after each name, these need to be removed
+# reduce authNames to a vector of names and remove spaces
+## first isolate names with 5 and 6 characters
+## make sure the sum of these two groups is equal to the length of authNames$name
+authNames5 <- filter(authNames, nchar(name) == 5 )$name 
+authNames6 <- filter(authNames, nchar(name) == 6 )$name 
+
+# this expression should evaluate to TRUE
+length(authNames5) + length(authNames6) == length(authNames$name)
+
+# now write expression to remove spaces from both the 5 and the 6 group, then combine to a single vector
+authNames5NS <- substr(authNames5,1,4)
+authNames6NS <- substr(authNames6,1,5) 
+
+authSampleNames <- c(authNames5NS, authNames6NS)
+
+authNames <- authNames %>%
+  mutate(namesNoSpaces = authSampleNames) %>%
+  select(-name)
+  
+# If a dataset has more observations that the other it must be the first data set in the expression
+# if names are the same the expression should evaluate to "character(0)"
+dataNames[!dataNames %in% authSampleNames]
+
+################ The final omnibus name check
+# if this statement evaluates to TRUE, then all expected names are present, and nothing more.
+identical(sort(dataNames),sort(authNames$namesNoSpaces))
+
+```
+
+```{r}
+refs %>%
+  filter(sample == "J21I") %>%
+  pull(collectionName) %>%
+  unique()
+
+refs %>%
+  filter(collectionName == "3.SW.I2.2.11MAY22") %>%
+  pull(sample) %>%
+  unique()
+```
+
